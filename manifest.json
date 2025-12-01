@@ -2,7 +2,7 @@
   "name": "GYO SYSTEM",
   "short_name": "GYO",
   "start_url": "./index.html",
-  "display": "standalone",
+  "display": "fullscreen",
   "display_override": ["window-controls-overlay"],
   "background_color": "#050805",
   "theme_color": "#050805",
