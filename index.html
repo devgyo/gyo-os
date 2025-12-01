@@ -20,7 +20,7 @@
     <style>
       :root {
         --phosphor-main: #33ff33;
-        --phosphor-alert: #ff3333; /* 新增：过期警告色 */
+        --phosphor-alert: #ff3333;
         --phosphor-dim: #1a801a;
         --bg-color: #050805;
         --scan-strength: 0.3;
@@ -39,13 +39,10 @@
         font-size: var(--font-size);
         overflow-x: hidden;
         min-height: 100vh;
-
-        /* 顶部留出空间给红黄绿按钮 */
         padding-top: max(32px, var(--titlebar-height));
         padding-left: 32px;
         padding-right: 32px;
         padding-bottom: 32px;
-
         box-sizing: border-box;
         display: block;
         text-shadow: 0 0 1px var(--phosphor-dim);
@@ -53,7 +50,6 @@
         user-select: none;
       }
 
-      /* 窗口拖动区域 */
       .window-drag-area {
         position: fixed;
         top: 0;
@@ -223,7 +219,6 @@
         text-shadow: none;
       }
 
-      /* 列表项 */
       ul {
         list-style: none;
         padding: 0;
@@ -253,8 +248,6 @@
       li:hover .play-btn {
         color: #000;
       }
-      /* 注意：这里去掉了 border-color，因为我们不需要边框 */
-
       li.done {
         opacity: 0.5;
         text-decoration: line-through;
@@ -274,24 +267,19 @@
         opacity: 1;
       }
 
-      /* 元数据区域 */
       .meta {
         display: flex;
         gap: 15px;
         align-items: center;
       }
-
-      /* 标签：彻底移除边框 */
       .tag {
-        border: none; /* 无边框 */
-        padding: 0; /* 紧凑 */
+        border: none;
+        padding: 0;
         font-size: 14px;
         min-width: 35px;
         text-align: center;
         font-weight: bold;
       }
-
-      /* 播放/删除按钮：彻底移除边框 */
       .del-btn,
       .play-btn {
         border: none;
@@ -308,15 +296,13 @@
         padding: 0;
       }
 
-      /* 过期状态的特殊样式 */
       .expired-tag {
         color: var(--phosphor-alert);
         animation: pulse 1s infinite;
       }
       li:hover .expired-tag {
         color: #500;
-      } /* hover时变深红 */
-
+      }
       @keyframes pulse {
         50% {
           opacity: 0.5;
@@ -389,6 +375,52 @@
     <div class="footer-text footer-right">GYO産経連盟オンライン 2025</div>
 
     <script>
+      // --- 🔊 Sound System (Audio API) ---
+      const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+      const gainNode = audioCtx.createGain();
+      gainNode.gain.value = 0.1; // 音量 (0.1 = 10%)
+      gainNode.connect(audioCtx.destination);
+
+      // 播放频率音
+      function playTone(freq, type, duration, slideTo = null) {
+        if (audioCtx.state === "suspended") audioCtx.resume();
+        const osc = audioCtx.createOscillator();
+        osc.type = type;
+        osc.frequency.setValueAtTime(freq, audioCtx.currentTime);
+        if (slideTo) {
+          osc.frequency.exponentialRampToValueAtTime(
+            slideTo,
+            audioCtx.currentTime + duration
+          );
+        }
+        osc.connect(gainNode);
+        osc.start();
+        osc.stop(audioCtx.currentTime + duration);
+      }
+
+      const SFX = {
+        // 打字声：极短的随机高频点击
+        type: () => {
+          const freq = 800 + Math.random() * 200;
+          playTone(freq, "square", 0.03);
+        },
+        // 确认音：双音
+        success: () => {
+          playTone(880, "sine", 0.1);
+          setTimeout(() => playTone(1760, "sine", 0.2), 100);
+        },
+        // 打开控制台：科技感扫频
+        open: () => playTone(200, "sawtooth", 0.15, 600),
+        // 关闭/删除：低频
+        close: () => playTone(400, "triangle", 0.1, 100),
+        // 警报：倒计时结束
+        alarm: () => {
+          playTone(100, "square", 0.2);
+          setTimeout(() => playTone(100, "square", 0.2), 300);
+        },
+      };
+
+      // --- 业务逻辑 ---
       let todos = [];
       try {
         const saved = localStorage.getItem("gyo-os-todos");
@@ -414,6 +446,9 @@
       const consoleWrapper = document.getElementById("console-wrapper");
       const list = document.getElementById("list");
 
+      // 绑定打字音效
+      inp.addEventListener("input", () => SFX.type());
+
       // 倒计时引擎
       setInterval(() => {
         let hasRunning = false;
@@ -423,10 +458,11 @@
             hasRunning = true;
             if (t.remaining > 0) {
               t.remaining--;
-              needsRender = true; // 只有在倒计时时才刷新 UI
+              needsRender = true;
             } else {
-              t.isRunning = false; // 时间到
-              t.remaining = -1; // 标记为过期
+              t.isRunning = false;
+              t.remaining = -1;
+              SFX.alarm(); // 播放警报
               needsRender = true;
             }
           }
@@ -450,19 +486,23 @@
       function toggleConsole() {
         isConsoleOpen = !isConsoleOpen;
         if (isConsoleOpen) {
+          SFX.open(); // 音效
           consoleWrapper.classList.add("active");
           setTimeout(() => inp.focus(), 50);
         } else {
+          SFX.close(); // 音效
           consoleWrapper.classList.remove("active");
           inp.blur();
         }
       }
 
       function setPrio(val) {
+        SFX.type();
         curPrio = val;
         updateUI("prio-group", val);
       }
       function setTime(val) {
+        SFX.type();
         curTime = val;
         updateUI("time-group", val);
       }
@@ -474,7 +514,7 @@
       }
 
       function formatTime(seconds) {
-        if (seconds < 0) return "期限切れ"; // 已过期
+        if (seconds < 0) return "期限切れ";
         const h = Math.floor(seconds / 3600);
         const m = Math.floor((seconds % 3600) / 60);
         const s = seconds % 60;
@@ -502,7 +542,6 @@
           if (t.done) li.classList.add("done");
           const stars = "*".repeat(t.prio);
 
-          // 倒计时逻辑
           let timeDisplay = t.hours + "H";
           let isExpired = false;
 
@@ -513,16 +552,14 @@
             timeDisplay = formatTime(t.remaining);
           }
 
-          // 播放按钮：如果是过期状态或已完成，不显示播放键
           let playBtnHtml = "";
           if (!isExpired && !t.done) {
             const playIcon = t.isRunning ? "||" : "▶";
             playBtnHtml = `<button class="play-btn" onclick="toggleTimer(event, ${i})">${playIcon}</button>`;
           } else {
-            playBtnHtml = `<span style="width:20px; display:inline-block;"></span>`; // 占位符保持对齐
+            playBtnHtml = `<span style="width:20px; display:inline-block;"></span>`;
           }
 
-          // 标签样式：如果是过期，添加红色样式类
           const tagClass = isExpired ? "tag expired-tag" : "tag";
 
           li.innerHTML = `
@@ -549,6 +586,7 @@
 
       document.getElementById("add-btn").onclick = () => {
         if (!inp.value.trim()) return;
+        SFX.success(); // 提交音效
         todos.push({
           text: inp.value,
           prio: curPrio,
@@ -568,12 +606,15 @@
       });
 
       window.toggle = (i) => {
+        SFX.success(); // 完成音效
         todos[i].done = !todos[i].done;
         save();
         render();
       };
+
       window.rem = (e, i) => {
         e.stopPropagation();
+        SFX.close(); // 删除音效
         todos.splice(i, 1);
         save();
         render();
@@ -582,6 +623,7 @@
       window.toggleTimer = (e, i) => {
         e.stopPropagation();
         if (todos[i].done || todos[i].remaining === -1) return;
+        SFX.type(); // 播放音效
         todos[i].isRunning = !todos[i].isRunning;
         save();
         render();
