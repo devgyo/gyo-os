@@ -6,6 +6,7 @@
       name="viewport"
       content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no"
     />
+    <meta name="theme-color" content="#050805" />
     <title>GYO SYSTEM</title>
     <link rel="manifest" href="manifest.json" />
 
@@ -19,6 +20,7 @@
     <style>
       :root {
         --phosphor-main: #33ff33;
+        --phosphor-alert: #ff3333; /* 新增：过期警告色 */
         --phosphor-dim: #1a801a;
         --bg-color: #050805;
         --scan-strength: 0.3;
@@ -26,6 +28,7 @@
         --cursor-style: url("data:image/svg+xml;utf8,<svg width='12' height='20' viewBox='0 0 12 20' xmlns='http://www.w3.org/2000/svg'><rect x='0' y='0' width='10' height='18' fill='%2333ff33' stroke='none'/></svg>")
             0 0,
           auto;
+        --titlebar-height: env(titlebar-area-height, 35px);
       }
 
       body {
@@ -36,11 +39,30 @@
         font-size: var(--font-size);
         overflow-x: hidden;
         min-height: 100vh;
-        padding: 32px;
+
+        /* 顶部留出空间给红黄绿按钮 */
+        padding-top: max(32px, var(--titlebar-height));
+        padding-left: 32px;
+        padding-right: 32px;
+        padding-bottom: 32px;
+
         box-sizing: border-box;
         display: block;
         text-shadow: 0 0 1px var(--phosphor-dim);
         cursor: var(--cursor-style);
+        user-select: none;
+      }
+
+      /* 窗口拖动区域 */
+      .window-drag-area {
+        position: fixed;
+        top: 0;
+        left: 0;
+        right: 0;
+        height: var(--titlebar-height);
+        z-index: 2000;
+        -webkit-app-region: drag;
+        app-region: drag;
       }
 
       button,
@@ -49,7 +71,10 @@
       li,
       .add-btn,
       select,
-      option {
+      option,
+      #console-wrapper {
+        -webkit-app-region: no-drag;
+        app-region: no-drag;
         cursor: inherit !important;
       }
 
@@ -73,7 +98,6 @@
         width: 100%;
         max-width: 800px;
         margin: 0 auto;
-        padding: 0;
         padding-bottom: 60px;
         z-index: 1;
         position: relative;
@@ -82,7 +106,6 @@
       .header {
         text-align: center;
         margin-bottom: 20px;
-        padding-bottom: 0;
       }
       .header h1 {
         margin: 0;
@@ -100,7 +123,6 @@
         text-align: center;
       }
 
-      /* --- 弹窗控制台 (右下角) --- */
       #console-wrapper {
         display: none;
         position: fixed;
@@ -112,8 +134,7 @@
         z-index: 500;
         border: 2px solid var(--phosphor-main);
         background: #050805;
-        box-shadow: 0 0 20px rgba(0, 0, 0, 0.9), 0 0 15px rgba(51, 255, 51, 0.2),
-          inset 0 0 10px var(--phosphor-dim);
+        box-shadow: 0 0 20px rgba(0, 0, 0, 0.9), 0 0 15px rgba(51, 255, 51, 0.2);
         transform-origin: bottom right;
       }
       #console-wrapper.active {
@@ -227,13 +248,13 @@
         text-shadow: none;
         font-weight: bold;
       }
-      /* Hover时所有内部元素反色 */
       li:hover .tag,
       li:hover .del-btn,
       li:hover .play-btn {
         color: #000;
-        border-color: #000;
       }
+      /* 注意：这里去掉了 border-color，因为我们不需要边框 */
+
       li.done {
         opacity: 0.5;
         text-decoration: line-through;
@@ -253,23 +274,24 @@
         opacity: 1;
       }
 
+      /* 元数据区域 */
       .meta {
         display: flex;
-        gap: 10px;
+        gap: 15px;
         align-items: center;
       }
 
+      /* 标签：彻底移除边框 */
       .tag {
-        border: 1px solid var(--phosphor-dim);
-        padding: 2px 8px;
+        border: none; /* 无边框 */
+        padding: 0; /* 紧凑 */
         font-size: 14px;
         min-width: 35px;
         text-align: center;
         font-weight: bold;
-        font-variant-numeric: tabular-nums; /* 数字等宽，防止倒计时抖动 */
       }
 
-      /* 播放/删除按钮通用样式 */
+      /* 播放/删除按钮：彻底移除边框 */
       .del-btn,
       .play-btn {
         border: none;
@@ -281,15 +303,25 @@
         padding: 0 5px;
         cursor: pointer;
       }
-      /* 播放按钮微调 */
       .play-btn {
         font-size: 14px;
-        border: 1px solid transparent;
-        padding: 2px 6px;
+        padding: 0;
       }
-      li:hover .play-btn {
-        border-color: #000;
-      } /* Hover时显示边框 */
+
+      /* 过期状态的特殊样式 */
+      .expired-tag {
+        color: var(--phosphor-alert);
+        animation: pulse 1s infinite;
+      }
+      li:hover .expired-tag {
+        color: #500;
+      } /* hover时变深红 */
+
+      @keyframes pulse {
+        50% {
+          opacity: 0.5;
+        }
+      }
 
       .footer-text {
         position: fixed;
@@ -313,6 +345,7 @@
   </head>
   <body>
     <div class="crt-overlay"></div>
+    <div class="window-drag-area"></div>
 
     <div class="container">
       <div class="header"><h1>GYO 人工知能運用システム</h1></div>
@@ -357,16 +390,13 @@
 
     <script>
       let todos = [];
-
-      // 读取数据
       try {
         const saved = localStorage.getItem("gyo-os-todos");
         if (saved) {
           todos = JSON.parse(saved);
-          // 数据迁移：给旧数据补全倒计时字段
           todos.forEach((t) => {
             if (typeof t.remaining === "undefined") {
-              t.remaining = t.hours * 3600; // 默认转为秒
+              t.remaining = t.hours * 3600;
               t.isRunning = false;
             }
           });
@@ -379,33 +409,34 @@
       let curPrio = 3;
       let curTime = 1;
       let isConsoleOpen = false;
-
       const inp = document.getElementById("inp");
       const statusBox = document.getElementById("status-box");
       const consoleWrapper = document.getElementById("console-wrapper");
       const list = document.getElementById("list");
 
-      // --- 倒计时核心引擎 ---
+      // 倒计时引擎
       setInterval(() => {
         let hasRunning = false;
+        let needsRender = false;
         todos.forEach((t) => {
           if (t.isRunning && !t.done) {
             hasRunning = true;
             if (t.remaining > 0) {
               t.remaining--;
+              needsRender = true; // 只有在倒计时时才刷新 UI
             } else {
-              t.isRunning = false; // 时间到，自动暂停
-              t.remaining = 0;
+              t.isRunning = false; // 时间到
+              t.remaining = -1; // 标记为过期
+              needsRender = true;
             }
           }
         });
-        if (hasRunning) {
+        if (hasRunning || needsRender) {
           save();
-          render(); // 每秒刷新界面
+          render();
         }
       }, 1000);
 
-      // Shift + = 呼出
       document.addEventListener("keydown", (e) => {
         if (
           e.key === "+" ||
@@ -442,15 +473,13 @@
         });
       }
 
-      // 格式化时间：秒 -> MM:SS 或 HH:MM:SS
       function formatTime(seconds) {
+        if (seconds < 0) return "期限切れ"; // 已过期
         const h = Math.floor(seconds / 3600);
         const m = Math.floor((seconds % 3600) / 60);
         const s = seconds % 60;
-
         const mStr = m.toString().padStart(2, "0");
         const sStr = s.toString().padStart(2, "0");
-
         if (h > 0) return `${h}:${mStr}:${sStr}`;
         return `${mStr}:${sStr}`;
       }
@@ -462,29 +491,39 @@
       function render() {
         list.innerHTML = "";
         if (!Array.isArray(todos)) todos = [];
-
-        // 排序：未完成 > 正在运行 > 优先级
         todos.sort((a, b) => {
           if (a.done !== b.done) return a.done - b.done;
-          if (a.isRunning !== b.isRunning) return b.isRunning - a.isRunning; // 运行中置顶
+          if (a.isRunning !== b.isRunning) return b.isRunning - a.isRunning;
           return b.prio - a.prio;
         });
 
         todos.forEach((t, i) => {
           const li = document.createElement("li");
           if (t.done) li.classList.add("done");
-
           const stars = "*".repeat(t.prio);
 
-          // 倒计时显示逻辑
+          // 倒计时逻辑
           let timeDisplay = t.hours + "H";
-          // 如果正在运行，或者剩余时间变少了，就显示倒计时
-          if (t.isRunning || t.remaining < t.hours * 3600) {
+          let isExpired = false;
+
+          if (t.remaining === -1) {
+            timeDisplay = "期限切れ";
+            isExpired = true;
+          } else if (t.isRunning || t.remaining < t.hours * 3600) {
             timeDisplay = formatTime(t.remaining);
           }
 
-          // 播放按钮图标
-          const playIcon = t.isRunning ? "||" : "▶";
+          // 播放按钮：如果是过期状态或已完成，不显示播放键
+          let playBtnHtml = "";
+          if (!isExpired && !t.done) {
+            const playIcon = t.isRunning ? "||" : "▶";
+            playBtnHtml = `<button class="play-btn" onclick="toggleTimer(event, ${i})">${playIcon}</button>`;
+          } else {
+            playBtnHtml = `<span style="width:20px; display:inline-block;"></span>`; // 占位符保持对齐
+          }
+
+          // 标签样式：如果是过期，添加红色样式类
+          const tagClass = isExpired ? "tag expired-tag" : "tag";
 
           li.innerHTML = `
                 <div class="task-left" onclick="toggle(${i})">
@@ -492,11 +531,8 @@
                 </div>
                 <div class="meta">
                     <span class="tag">${stars}</span>
-
-                    <button class="play-btn" onclick="toggleTimer(event, ${i})">${playIcon}</button>
-
-                    <span class="tag" style="min-width: 60px;">${timeDisplay}</span>
-
+                    ${playBtnHtml}
+                    <span class="${tagClass}" style="min-width: 60px;">${timeDisplay}</span>
                     <button class="del-btn" onclick="rem(event, ${i})">X</button>
                 </div>
             `;
@@ -505,13 +541,10 @@
 
         const left = todos.filter((t) => !t.done).length;
         const running = todos.filter((t) => t.isRunning).length;
-
-        if (running > 0) {
-          statusBox.innerText = `TASKS RUNNING: ${running} // PENDING: ${left}`;
-        } else {
-          statusBox.innerText =
-            left > 0 ? `PENDING TASKS: ${left}` : `SYSTEM NOMINAL. STANDBY.`;
-        }
+        statusBox.innerText =
+          running > 0
+            ? `TASKS RUNNING: ${running} // PENDING: ${left}`
+            : `SYSTEM NOMINAL. STANDBY.`;
       }
 
       document.getElementById("add-btn").onclick = () => {
@@ -522,7 +555,7 @@
           hours: curTime,
           done: false,
           isRunning: false,
-          remaining: curTime * 3600, // 初始化秒数
+          remaining: curTime * 3600,
         });
         inp.value = "";
         save();
@@ -546,14 +579,9 @@
         render();
       };
 
-      // 切换计时器
       window.toggleTimer = (e, i) => {
         e.stopPropagation();
-        if (todos[i].done) return; // 完成的任务不能跑
-
-        // 独占模式：如果想一次只跑一个任务，取消下面注释
-        // todos.forEach((t, idx) => { if (idx !== i) t.isRunning = false; });
-
+        if (todos[i].done || todos[i].remaining === -1) return;
         todos[i].isRunning = !todos[i].isRunning;
         save();
         render();
